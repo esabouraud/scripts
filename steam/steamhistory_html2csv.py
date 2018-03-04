@@ -24,59 +24,89 @@ class SteamAccountGame:
         self.price = 0.0
         self.currency = ""
 
+    def __str__(self):
+        return "| %s | %s | %s | %s %s |" % (self.date, self.event, self.name, self.price, self.currency )
+
     def toCSV(self, separator):
         list = []
         list.append(self.name)
         list.append(self.date)
-        list.append(str(self.price))
+        list.append(str(self.price).replace(".", ","))
         list.append(self.currency)
         list.append(self.event)
 
         return separator.join(list)
 
 
-def soupParse(soup):
-    games = []
-    reprice = re.compile("([^\d]*)([\d,\.]*)(.*)")
-    reyears = re.compile("\d{1,2} \w{3} (\d{4})")
-    # locale.setlocale(locale.LC_TIME, "en_US")
-    for attr in ["transactions", "hidden_transactions"]:
-        transactions = soup.find("div", attr, )
-        gamestransactions = transactions.find_all("div", "transactionRow")
-        for gt in gamestransactions:
-            g = SteamAccountGame()
-            # g.date = datetime.strptime("%d %b %Y", gt.find("div", "transactionRowDate").get_text())
-            g.date = gt.find("div", "transactionRowDate").get_text()
-            g.year = str(reyears.match(g.date).group(1))
-            g.name = gt.find("div", "transactionRowTitle").get_text()
-            g.event = gt.find("div", "transactionRowEvent").get_text()
-            price = gt.find("div", "transactionRowPrice").get_text()
-            if price == "Free":
-                g.price = 0.0
-            else:
-                matchprice = reprice.match(price)
-                g.price = float(matchprice.group(2).replace(",", "."))
-                g.currency = matchprice.group(1) + matchprice.group(3)
-                g.currency = g.currency.strip()
-            games.append(g)
-    # locale.resetlocale(locale.LC_TIME)
-    return games
-
-
 def gamesListToCSV(games):
     csv = []
     for g in games:
-        csv.append(g.toCSV(";").encode("UTF-8"))
+        print g
+        csv.append(g.toCSV("|").decode("iso-8859-1").encode("UTF-8"))
     return csv
 
 
-def html2csv(inputfile, outputfile):
+def txtParse(steamtxt):
+    reyears = re.compile("^\d{1,2} \w{3}, (\d{4})$")
+    reprice = re.compile("([^\d]*)([\d,\.]*)(...).*")
+    games = []
+    state = 0
+    for line in steamtxt:
+        line = line.strip()
+        # Look for date
+        if state == 0:
+            m = reyears.match(line)
+            if m:
+                g = SteamAccountGame()
+                g.date = m.group(0)
+                g.year = m.group(1)
+                g.name = []
+                state = 1
+            continue
+        # Look for transaction type, store names
+        if state == 1:
+            if line == "Purchase":
+                g.event = line
+                g.name = ", ".join(g.name)
+                state = 2
+            elif line == "Gift Purchase":
+                state = 0
+            elif line == "Refund":
+                g.event = line
+                g.name = ", ".join(g.name)
+                state = 4
+            elif len(line) != 0:
+                g.name.append(line)
+            continue
+        # Skip a line
+        if state == 2:
+            state = 3
+            continue
+        # Finalize recording with price
+        if state == 3:
+            matchprice = reprice.match(line)
+            g.price = float(matchprice.group(2).replace(",", "."))
+            if g.event == "Refund":
+                g.price *= -1
+            g.currency = matchprice.group(1) + matchprice.group(3)
+            g.currency = g.currency.strip()
+
+            games.append(g)
+            #print g
+            state = 0
+            continue
+        # Handle refunds
+        if state == 4:
+            if line == "Refund":
+                state = 2
+            continue
+
+    return games
+
+def txt2csv(inputfile, outputfile):
     inf = open(inputfile, "r")
-    steamhtml = inf.read()
-
-    soup = BeautifulSoup(steamhtml)
-    gameslist = soupParse(soup)
-
+    steamtxt = inf.readlines()
+    gameslist = txtParse(steamtxt)
     steamcsv = gamesListToCSV(gameslist)
     # print steamcsv
 
@@ -92,16 +122,14 @@ def printStats(output, gamestotalnum, nonsteamtotalnum, monies):
     output.append("\tMoney spent")
     for m in monies.keys():
         if monies[m] != 0.0:
-            output.append("\t\t%.2f %s" % (monies[m], m.encode("UTF-8")))
+            output.append("\t\t%.2f %s" % (monies[m], m))
     return output
 
 
-def html2stats(inputfile, outputfile):
+def getstats(inputfile, outputfile):
     inf = open(inputfile, "r")
-    steamhtml = inf.read()
-
-    soup = BeautifulSoup(steamhtml)
-    gameslist = soupParse(soup)
+    steamtxt = inf.readlines()
+    gameslist = txtParse(steamtxt)
 
     years = set()
     currencies = set()
@@ -152,5 +180,6 @@ if __name__ == '__main__':
 
     (options, args) = parser.parse_args()
 
-    html2csv(options.input, options.output)
-    html2stats(options.input, options.statoutput)
+    #html2csv(options.input, options.output)
+    txt2csv(options.input, options.output)
+    getstats(options.input, options.statoutput)
