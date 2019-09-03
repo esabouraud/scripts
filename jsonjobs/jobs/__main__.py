@@ -20,10 +20,10 @@ def display_jobs(jobs_json, joburl_prefix, filter_rx):
     """Filter and display job offers"""
 
     jobs = json.loads(jobs_json)
-    for job in jobs["items"]:
-        match = filter_rx.search(json.dumps(job))
-        if not match:
-            print("%s - %s => %s%s" % (job["title"], job["fulllocation"], joburl_prefix, job["id"]))
+    selected_jobs = [job for job in jobs["items"] if not filter_rx or not filter_rx.search(json.dumps(job))]
+    print("%d job offers selected:" % len(selected_jobs))
+    for job in selected_jobs:
+        print("\t%s - %s => %s%s" % (job["title"], job["fulllocation"], joburl_prefix, job["id"]))
 
 
 def main():
@@ -39,7 +39,7 @@ def main():
         dest="joburl_prefix", default=None, help="URL prefix for outgoing link")
     options = parser.parse_args()
 
-    print("Fetching jobs from: %s" % options.url)
+    print("Fetching job offers from: %s" % options.url)
     jobs_json = get_jobs_json(options.url)
     if options.filter:
         filter_rx = re.compile(options.filter)
